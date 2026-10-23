@@ -25,6 +25,8 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
+          # Dernière 24.x publiée, pas celle en cache sur l'exécuteur (souvent en retard d'un correctif).
+          check-latest: true
           cache: npm
       - run: npm ci
       - run: npm run typecheck
