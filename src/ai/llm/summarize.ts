@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { chunkLines, estimateTokens } from '../../domain/transcript.js';
 import { isContextOverflow } from '../../domain/failure.js';
+import { glossaryBlock, glossaryFor, type GlossaryEntry } from '../../domain/glossary.js';
 import { applyReplacements, correctionReplacements } from '../../domain/vocabulary.js';
 import type { ChatMessage } from './client.js';
 import type { JsonLlm } from './failover.js';
@@ -16,6 +17,8 @@ export interface SummaryContext {
   vocabulary?: readonly string[];
   /** Consignes de correction de l'organisateur, prioritaires sur la transcription. */
   corrections?: readonly string[];
+  /** Glossaire du serveur : seules les définitions des termes présents dans la passe sont envoyées. */
+  glossary?: readonly GlossaryEntry[];
 }
 
 /**
@@ -109,18 +112,21 @@ export async function summarizeMeeting(
   const fix = (text: string) => applyReplacements(text, replacements);
   const finish = (summary: MeetingSummary) => sanitize(replacements.length ? fixStrings(summary, fix) : summary, ctx);
   const chunks = chunkLines(replacements.length ? lines.map(fix) : lines, chunkTokens);
+  // Glossaire : pour chaque passe, les définitions des seuls termes qu'elle contient.
+  const glossaryOf = (text: string) => glossaryBlock(glossaryFor(text, ctx.glossary ?? []));
   // Passes : une par morceau, puis les fusions (estimées pour l'affichage).
   const estimatedTotal = chunks.length === 1 ? 1 : chunks.length + Math.max(1, Math.ceil(chunks.length / 4));
   let pass = 0;
 
   if (chunks.length === 1) {
     onProgress(++pass, estimatedTotal);
-    const summary = await run([system, { role: 'user', content: `${contextBlock(ctx)}\n\nTranscription :\n${chunks[0]!.join('\n')}` }]);
+    const text = chunks[0]!.join('\n');
+    const summary = await run([system, { role: 'user', content: `${contextBlock(ctx)}${glossaryOf(text)}\n\nTranscription :\n${text}` }]);
     return { summary: finish(summary), passes: pass, models: [...models] };
   }
 
   // Passe « map » : notes partielles par morceau, gardées au fur et à mesure (reprise).
-  const key = createHash('sha256').update(JSON.stringify({ system: system.content, context: contextBlock(ctx), chunks })).digest('hex').slice(0, 32);
+  const key = createHash('sha256').update(JSON.stringify({ system: system.content, context: contextBlock(ctx), glossary: ctx.glossary ?? [], chunks })).digest('hex').slice(0, 32);
   let partials: MeetingSummary[] = [...(checkpoint?.load(key) ?? [])].slice(0, chunks.length);
   pass = partials.length;
   for (const [i, chunk] of chunks.entries()) {
@@ -131,7 +137,7 @@ export async function summarizeMeeting(
         system,
         {
           role: 'user',
-          content: `${contextBlock(ctx)}\n\nVoici l'extrait ${i + 1}/${chunks.length} de la transcription. Résume uniquement cet extrait (même format) ; une fusion suivra.\n\nTranscription :\n${chunk.join('\n')}`,
+          content: `${contextBlock(ctx)}${glossaryOf(chunk.join('\n'))}\n\nVoici l'extrait ${i + 1}/${chunks.length} de la transcription. Résume uniquement cet extrait (même format) ; une fusion suivra.\n\nTranscription :\n${chunk.join('\n')}`,
         },
       ]),
     );
@@ -165,7 +171,7 @@ export async function summarizeMeeting(
             system,
             {
               role: 'user',
-              content: `${contextBlock(ctx)}\n\nVoici ${group.length} résumés partiels successifs de la même réunion. Fusionne-les en un seul (même format) : regroupe par sujet, supprime les doublons, garde toutes les décisions et actions.\n\n${group.map((p, i) => `Résumé ${i + 1} :\n${JSON.stringify(p)}`).join('\n\n')}`,
+              content: `${contextBlock(ctx)}${glossaryOf(JSON.stringify(group))}\n\nVoici ${group.length} résumés partiels successifs de la même réunion. Fusionne-les en un seul (même format) : regroupe par sujet, supprime les doublons, garde toutes les décisions et actions.\n\n${group.map((p, i) => `Résumé ${i + 1} :\n${JSON.stringify(p)}`).join('\n\n')}`,
             },
           ]),
         ];

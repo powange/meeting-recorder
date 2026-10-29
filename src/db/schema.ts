@@ -231,6 +231,26 @@ export const recordingOptouts = pgTable(
 
 /** Serveurs de transcription d'un serveur Discord (/config transcription), par ordre de priorité. */
 /**
+ * Glossaire d'un serveur : termes propres au serveur et leur définition, envoyés au modèle de
+ * résumé quand ils apparaissent dans la réunion (et les termes seuls à Whisper). `key` : forme
+ * normalisée du terme (casse, accents, ponctuation ignorés), unique par serveur.
+ */
+export const glossaryTerms = pgTable(
+  'glossary_terms',
+  {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    guildId: text().notNull(),
+    key: text().notNull(),
+    term: text().notNull(),
+    variants: text().array().notNull().default(sql`'{}'::text[]`),
+    definition: text().notNull(),
+    updatedBy: text().notNull(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.guildId, t.key)],
+);
+
+/**
  * Serveurs de résumé (compatibles OpenAI : LM Studio, Ollama, LiteLLM), par ordre de priorité :
  * en cas d'échec de l'un, le suivant prend le relais. Clé d'API chiffrée (APP_SECRET_KEY).
  */
@@ -470,3 +490,4 @@ export type ScheduledJobRow = typeof scheduledJobs.$inferSelect;
 
 export type DateSlotRow = typeof dateSlots.$inferSelect;
 export type LlmBackendRow = typeof llmBackends.$inferSelect;
+export type GlossaryTermRow = typeof glossaryTerms.$inferSelect;

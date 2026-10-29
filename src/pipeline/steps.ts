@@ -250,6 +250,7 @@ async function transcribe(deps: PipelineDeps, ctx: StepContext, maxMs?: number):
     corrections: (await repos.getSummary(meeting.id))?.corrections ?? [],
     names: [...(await repos.displayNamesForMeeting(meeting.id)).values()],
     agenda: (await repos.listAgenda(meeting.id)).map((a) => a.title),
+    glossary: (await repos.listGlossary(meeting.guildId)).flatMap((g) => [g.term, ...g.variants]),
   });
 
   const { backends } = await effectiveBackends(repos, config, meeting.guildId);
@@ -378,6 +379,8 @@ async function summarize(deps: PipelineDeps, ctx: StepContext): Promise<Record<s
       await repos.updateStep(meeting.id, 'summarize', { output: { checkpoint: saved } });
     },
   };
+  // Glossaire du serveur : chaque passe n'en reçoit que les termes qu'elle contient.
+  const glossary = (await repos.listGlossary(meeting.guildId)).map((g) => ({ term: g.term, variants: g.variants, definition: g.definition }));
   const run = (chunkTokens: number) =>
     summarizeMeeting(
       llm,
@@ -389,6 +392,7 @@ async function summarize(deps: PipelineDeps, ctx: StepContext): Promise<Record<s
         agenda: agenda.map((a) => ({ id: a.id, title: a.title, detail: a.detail })),
         vocabulary: settings.vocabulary,
         corrections,
+        glossary,
       },
       transcript,
       chunkTokens,

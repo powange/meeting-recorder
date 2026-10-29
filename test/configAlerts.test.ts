@@ -35,6 +35,7 @@ function setup(opts: { canPost: boolean; sendFails?: boolean }) {
     storage: { get: async () => undefined, available: () => [], blockedBySecretKey: () => false },
     repos: {
       listLlmBackends: async () => [],
+      listGlossary: async () => [],
       listBackends: async () => [],
       updateSettings: vi.fn(async (_g: string, patch: Partial<typeof settings>) => {
         settings = { ...settings, ...patch };

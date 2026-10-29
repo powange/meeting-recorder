@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 import type { GuildSeed } from '../config/index.js';
 import { reindex } from '../domain/agenda.js';
+import { glossaryKey, type GlossaryEntry } from '../domain/glossary.js';
 import type { PlannedJob } from '../domain/reminders.js';
 import { PIPELINE_STEPS, type MeetingStatus, type PipelineStep, type RsvpStatus } from '../domain/types.js';
 import type { Db } from './client.js';
@@ -9,6 +10,7 @@ import {
   dateSlots,
   llmBackends,
   dateVotes,
+  glossaryTerms,
   audioSegments,
   captureStats,
   pipelineSteps,
@@ -26,6 +28,7 @@ import {
   rsvps,
   scheduledJobs,
   type AgendaItemRow,
+  type GlossaryTermRow,
   type PipelineStepRow,
   type SummaryRow,
   type TranscriptionBackendRow,
@@ -90,8 +93,51 @@ export class Repositories {
       await tx.delete(llmBackends).where(eq(llmBackends.guildId, guildId));
       await tx.delete(transcriptionBackends).where(eq(transcriptionBackends.guildId, guildId));
       await tx.delete(guildStorage).where(eq(guildStorage.guildId, guildId));
+      await tx.delete(glossaryTerms).where(eq(glossaryTerms.guildId, guildId));
       await tx.delete(guildSettings).where(eq(guildSettings.guildId, guildId));
     });
+  }
+
+  // ---------------------------------------------------------------- glossaire
+
+  async listGlossary(guildId: string): Promise<GlossaryTermRow[]> {
+    const rows = await this.db.select().from(glossaryTerms).where(eq(glossaryTerms.guildId, guildId));
+    return rows.sort((a, b) => a.key.localeCompare(b.key));
+  }
+
+  /**
+   * Ajoute ou met à jour des termes (même terme à la casse et aux accents près : mis à jour).
+   * Renvoie le nombre d'ajouts et de mises à jour.
+   */
+  async upsertGlossary(guildId: string, entries: readonly GlossaryEntry[], by: string): Promise<{ added: number; updated: number }> {
+    if (entries.length === 0) return { added: 0, updated: 0 };
+    const existing = new Set((await this.listGlossary(guildId)).map((r) => r.key));
+    const values = entries.map((e) => ({ guildId, key: glossaryKey(e.term), term: e.term, variants: [...e.variants], definition: e.definition, updatedBy: by, updatedAt: new Date() }));
+    await this.db
+      .insert(glossaryTerms)
+      .values(values)
+      .onConflictDoUpdate({
+        target: [glossaryTerms.guildId, glossaryTerms.key],
+        set: { term: sql`excluded.term`, variants: sql`excluded.variants`, definition: sql`excluded.definition`, updatedBy: sql`excluded.updated_by`, updatedAt: sql`excluded.updated_at` },
+      });
+    const added = values.filter((v) => !existing.has(v.key)).length;
+    return { added, updated: values.length - added };
+  }
+
+  /** Modifie un terme ; faux si un autre terme du serveur a déjà cette écriture. */
+  async updateGlossaryTerm(guildId: string, id: number, entry: GlossaryEntry, by: string): Promise<boolean> {
+    const key = glossaryKey(entry.term);
+    const clash = (await this.listGlossary(guildId)).some((r) => r.key === key && r.id !== id);
+    if (clash) return false;
+    await this.db
+      .update(glossaryTerms)
+      .set({ key, term: entry.term, variants: [...entry.variants], definition: entry.definition, updatedBy: by, updatedAt: new Date() })
+      .where(and(eq(glossaryTerms.guildId, guildId), eq(glossaryTerms.id, id)));
+    return true;
+  }
+
+  async deleteGlossaryTerm(guildId: string, id: number): Promise<void> {
+    await this.db.delete(glossaryTerms).where(and(eq(glossaryTerms.guildId, guildId), eq(glossaryTerms.id, id)));
   }
 
   /** Chiffre les clés d'API encore stockées en clair (APP_SECRET_KEY ajoutée après coup). Renvoie leur nombre. */

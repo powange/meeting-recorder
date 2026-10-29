@@ -48,7 +48,7 @@ export function correctionTerms(corrections: readonly string[]): string[] {
 
 /**
  * Prompt de vocabulaire pour Whisper, du plus au moins prioritaire : texte du YAML, vocabulaire du
- * serveur, termes des corrections, participants, ordre du jour. Coupé entre deux termes.
+ * serveur, termes des corrections, participants, ordre du jour, termes du glossaire. Coupé entre deux termes.
  */
 export function whisperPrompt(parts: {
   base?: string | undefined;
@@ -56,8 +56,10 @@ export function whisperPrompt(parts: {
   corrections: readonly string[];
   names: readonly string[];
   agenda: readonly string[];
+  /** Termes du glossaire et leurs variantes (sans définition), en dernier. */
+  glossary?: readonly string[];
 }): string | undefined {
-  const terms = parseVocabulary([...parts.vocabulary, ...correctionTerms(parts.corrections), ...parts.names, ...parts.agenda].join('\n'));
+  const terms = parseVocabulary([...parts.vocabulary, ...correctionTerms(parts.corrections), ...parts.names, ...parts.agenda, ...(parts.glossary ?? [])].join('\n'));
   let prompt = parts.base?.trim() ?? '';
   for (const term of terms) {
     const next = prompt ? `${prompt}${prompt === parts.base?.trim() ? ' ' : ', '}${term}` : term;

@@ -135,6 +135,19 @@ describe('summarizeMeeting', () => {
     expect(r.models).toEqual(['qwen3:14b (ollama-pc1)']);
   });
 
+  it('glossaire : seules les définitions des termes cités dans la passe sont envoyées', async () => {
+    const before = requests.length;
+    reply = () => JSON.stringify({ overview: 'ok', topics: [] });
+    const glossary = [
+      { term: 'Ram Strat', variants: ['ramstrat'], definition: 'éperonner avec une chaloupe.' },
+      { term: 'Keg', variants: [], definition: 'tonneau explosif.' },
+    ];
+    await summarizeMeeting(llm(), { ...ctx, glossary }, ['[18:00:00] Alice : on tente la ramstrat ?'], 6000);
+    const prompt = requests[before]!.body.messages.at(-1)!.content;
+    expect(prompt).toContain('- Ram Strat (ramstrat) : éperonner avec une chaloupe.');
+    expect(prompt).not.toContain('tonneau explosif');
+  });
+
   it('doublons de la fusion retirés (casse et ponctuation ignorées), responsable gardé', async () => {
     const t = { ...topic(1, 'Budget', ['Budget voté', 'budget voté.']), openQuestions: ['Quand ?', 'Quand ?'], actions: [{ what: 'Vérifier la longueur', who: null, when: null }, { what: 'Vérifier la longueur', who: 'Alice', when: null }] };
     reply = () => JSON.stringify({ overview: '', topics: [t] });

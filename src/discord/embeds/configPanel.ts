@@ -13,12 +13,13 @@ import {
 import type { GuildSettingsRow } from '../../db/schema.js';
 import { channelPage, type ChannelInfo } from '../../domain/channelChoices.js';
 import { encode, type CfgAction } from '../../domain/customId.js';
+import { GLOSSARY_MAX_TERMS } from '../../domain/glossary.js';
 import { formatOffset } from '../../domain/reminders.js';
 import type { StorageProvider } from '../../domain/storage.js';
 import type { Messages } from '../../i18n/index.js';
 import { Accent } from '../ui/palette.js';
 
-export const CONFIG_SECTIONS = ['forum', 'voice', 'roles', 'reminders', 'general', 'recording', 'transcription', 'summary', 'storage', 'alerts'] as const;
+export const CONFIG_SECTIONS = ['forum', 'voice', 'roles', 'reminders', 'general', 'recording', 'transcription', 'summary', 'glossary', 'storage', 'alerts'] as const;
 export type ConfigSection = (typeof CONFIG_SECTIONS)[number];
 
 export interface ConfigContext {
@@ -61,6 +62,13 @@ export interface ConfigContext {
   forumPostsReserved?: boolean | undefined;
   /** Permissions qui manquent au bot sur le forum choisi (vérifiées à chaque ouverture). */
   forumMissing?: readonly string[];
+  /** Glossaire du serveur : termes, page du menu, terme choisi, suppression demandée. */
+  glossary?: {
+    terms: ReadonlyArray<{ id: number; term: string; variants: readonly string[]; definition: string }>;
+    page?: number;
+    selected?: number | undefined;
+    confirmDelete?: boolean;
+  };
   /** Version du bot en cours d'exécution (pied de l'accueil). */
   version?: { version: string; commit: string };
   notice?: string | undefined;
@@ -72,6 +80,9 @@ export const VOICE_LEADS_MIN = [5, 10, 15, 30, 60] as const;
 export function voiceModeOf(s: GuildSettingsRow): VoiceMode {
   return s.autoVoice ? 'auto' : s.voiceChannelId ? 'fixed' : 'free';
 }
+
+/** Termes par page du menu du glossaire (limite des menus Discord). */
+const GLOSSARY_PAGE = 25;
 
 const cfg = (action: CfgAction, arg?: string) => encode(arg === undefined ? { type: 'cfg', action } : { type: 'cfg', action, arg });
 const btn = (action: CfgAction, label: string, emoji: string, style = ButtonStyle.Secondary) =>
@@ -101,6 +112,8 @@ export function sectionSummary(section: ConfigSection, c: ConfigContext, m: Mess
       return `${s.autoRecordDefault ? t.autoOn : t.autoOff} · ${t.refusals(c.refusals?.length ?? 0)}`;
     case 'transcription':
       return c.transcription;
+    case 'glossary':
+      return c.glossary?.terms.length ? t.glossaryCount(c.glossary.terms.length) : `*${t.none}*`;
     case 'alerts':
       return s.alertChannelId ? `<#${s.alertChannelId}>` : `*${t.none}*`;
     case 'storage': {
@@ -384,6 +397,58 @@ export function renderConfigSection(section: Exclude<ConfigSection, 'transcripti
       // Désactiver le résumé se confirme (les prochains comptes rendus n'auront plus que l'audio et la transcription).
       if (c.confirmLlmDisable) general.addComponents(btn('llmDisableConfirm', t.llmDisableConfirm, '⏸️', ButtonStyle.Danger));
       else general.addComponents(btn('llmToggle', l?.enabled === false ? t.llmEnable : t.llmDisable, l?.enabled === false ? '▶️' : '⏸️'));
+      rows.push(general);
+      break;
+    }
+    case 'glossary': {
+      const g = c.glossary;
+      const terms = g?.terms ?? [];
+      const pages = Math.max(1, Math.ceil(terms.length / GLOSSARY_PAGE));
+      const page = Math.min(g?.page ?? 0, pages - 1);
+      const selected = terms.find((x) => x.id === g?.selected);
+      if (selected) {
+        container.addTextDisplayComponents((x) =>
+          x.setContent(`**${selected.term}**\n${selected.definition}${selected.variants.length ? `\n-# ${t.glossaryVariantsField.replace(/ \(.*\)$/, '')} : ${selected.variants.join(', ')}` : ''}`),
+        );
+      }
+      if (terms.length) {
+        const shown = terms.slice(page * GLOSSARY_PAGE, (page + 1) * GLOSSARY_PAGE);
+        rows.push(
+          new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+            new StringSelectMenuBuilder()
+              .setCustomId(cfg('glossaryPick', `gp.${page}`))
+              .setPlaceholder(pages > 1 ? t.glossaryPickPage(page + 1, pages) : t.glossaryPick)
+              .addOptions(shown.map((x) => ({ label: x.term.slice(0, 100), value: String(x.id), description: x.definition.slice(0, 100), default: x.id === selected?.id }))),
+          ),
+        );
+        if (pages > 1) {
+          rows.push(
+            new ActionRowBuilder<ButtonBuilder>().addComponents(
+              btn('glossaryPage', t.previous, '◀️').setCustomId(cfg('glossaryPage', `gp.${Math.max(0, page - 1)}`)).setDisabled(page === 0),
+              btn('glossaryPage', t.next, '▶️').setCustomId(cfg('glossaryPage', `gp.${page + 1}`)).setDisabled(page >= pages - 1),
+            ),
+          );
+        }
+      }
+      if (selected) {
+        const arg = `g.${selected.id}`;
+        rows.push(
+          g?.confirmDelete
+            ? new ActionRowBuilder<ButtonBuilder>().addComponents(
+                btn('glossaryDeleteConfirm', t.glossaryDeleteConfirm, '🗑️', ButtonStyle.Danger).setCustomId(cfg('glossaryDeleteConfirm', arg)),
+                btn('glossaryCancel', m.buttons.cancel, '').setCustomId(cfg('glossaryCancel', arg)),
+              )
+            : new ActionRowBuilder<ButtonBuilder>().addComponents(
+                btn('glossaryEdit', t.glossaryEdit, '✏️').setCustomId(cfg('glossaryEdit', arg)),
+                btn('glossaryDelete', t.glossaryDelete, '🗑️', ButtonStyle.Danger).setCustomId(cfg('glossaryDelete', arg)),
+              ),
+        );
+      }
+      const general = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        btn('glossaryAdd', t.glossaryAdd, '➕', ButtonStyle.Primary).setDisabled(terms.length >= GLOSSARY_MAX_TERMS),
+        btn('glossaryImport', t.glossaryImport, '📥'),
+      );
+      if (terms.length) general.addComponents(btn('glossaryExport', t.glossaryExport, '📤'));
       rows.push(general);
       break;
     }

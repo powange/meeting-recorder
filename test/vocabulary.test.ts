@@ -24,6 +24,11 @@ describe('termes tirés des consignes de correction', () => {
 });
 
 describe('prompt Whisper', () => {
+  it('termes du glossaire en dernier (après vocabulaire, participants et ordre du jour)', () => {
+    const prompt = whisperPrompt({ vocabulary: ['Apothicaire'], corrections: [], names: ['Pol'], agenda: ['Budget'], glossary: ['Ram Strat', 'ramstrat'] });
+    expect(prompt).toBe('Apothicaire, Pol, Budget, Ram Strat, ramstrat');
+  });
+
   it('ordre de priorité : YAML, vocabulaire, corrections, participants, ODJ ; sans doublon', () => {
     const prompt = whisperPrompt({ base: 'Réunion associative.', vocabulary: ['LiteLLM'], corrections: ['Pol et non Paul'], names: ['Emma', 'Pol'], agenda: ['Budget'] });
     expect(prompt).toBe('Réunion associative. LiteLLM, Pol, Emma, Budget');

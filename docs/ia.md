@@ -43,6 +43,16 @@ Le protocole Wyoming (Home Assistant) n'est pas pris en charge : le bot ne parle
 
 Côté machine : **LM Studio** (Context Length 16384 ; GPU Offload au maximum ; moteur CUDA pour une carte NVIDIA, Vulkan pour AMD/Intel) ou **Ollama** avec un modèle de résumé, par exemple `ollama pull qwen3:14b`. Avec 16 Go de VRAM partagés avec Whisper, garder un `keep_alive` court côté Ollama et `--unload-timeout` côté Vibe.
 
+## Glossaire du serveur
+
+`/config` → 📚 **Glossaire** (membres ayant « Gérer le serveur ») : les termes propres au serveur (jeux, projets, sigles) et leur définition, pour que le modèle de résumé comprenne de quoi on parle et ne fasse pas de contresens.
+
+- **➕ Ajouter** un terme : le terme, ses **autres écritures** facultatives (« ramstrat, rame strat » : la transcription n'écrit pas toujours un terme de la même façon) et une définition courte et factuelle (300 caractères au plus). Le modèle la reprend telle quelle.
+- **📥 Importer** plusieurs termes d'un coup, une ligne par terme : `terme (variante, variante) : définition`. Un terme déjà présent est mis à jour (casse et accents ignorés), les lignes illisibles sont signalées par leur numéro. **📤 Exporter** donne le fichier au même format, à retoucher puis réimporter.
+- Jusqu'à **100 termes** par serveur ; un terme choisi dans la liste se modifie ou se supprime (avec confirmation).
+- **Ce qui est envoyé** : à chaque passe du résumé, seules les définitions des termes (ou de leurs variantes) **cités dans le morceau** de transcription, les plus cités d'abord, dans la limite d'environ 600 tokens : un grand glossaire ne prend pas la place de la transcription. Les termes seuls (sans définition) complètent aussi le vocabulaire envoyé à Whisper, en dernier.
+- Modifier le glossaire pendant un résumé en plusieurs passes le fait repartir de zéro à la reprise suivante.
+
 ## 4. LiteLLM (facultatif)
 
 LiteLLM répartit les appels entre plusieurs machines. Copier [config/litellm.example.yaml](../config/litellm.example.yaml) sur l'hôte (`/srv/meeting-bot/litellm.yaml`), puis ajouter `COMPOSE_PROFILES=litellm` et `LITELLM_MASTER_KEY` dans les variables de la stack. Sans LiteLLM, il suffit de régler le serveur dans `/config` → Résumé.

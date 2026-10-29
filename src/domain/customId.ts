@@ -110,6 +110,18 @@ export const CFG_ACTIONS = [
   'storageFolderSubmit',
   'storageDisconnect',
   'storageDisconnectConfirm',
+  'glossaryPick',
+  'glossaryPage',
+  'glossaryAdd',
+  'glossaryAddSubmit',
+  'glossaryEdit',
+  'glossaryEditSubmit',
+  'glossaryDelete',
+  'glossaryDeleteConfirm',
+  'glossaryCancel',
+  'glossaryImport',
+  'glossaryImportSubmit',
+  'glossaryExport',
 ] as const;
 export type CfgAction = (typeof CFG_ACTIONS)[number];
 

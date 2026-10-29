@@ -13,6 +13,7 @@ import {
   type Interaction,
 } from 'discord.js';
 import { noticeText } from '../ui/notice.js';
+import { formatGlossaryLine, GLOSSARY_DEFINITION_MAX, GLOSSARY_MAX_TERMS, GLOSSARY_TERM_MAX, glossaryKey, parseGlossaryImport, parseVariants } from '../../domain/glossary.js';
 import { IANAZone } from 'luxon';
 import type { AppContext } from '../../context.js';
 import { pageOf, type ChannelInfo } from '../../domain/channelChoices.js';
@@ -89,6 +90,7 @@ async function context(ctx: AppContext, guildId: string, m: Messages, notice?: s
     canEditAi: userId ? ctx.owners.isOwner(userId) : false,
     refusals: await ctx.optouts.list(guildId),
     storage: await storageView(ctx, guildId),
+    glossary: { terms: (await ctx.repos.listGlossary(guildId)).map((g) => ({ id: g.id, term: g.term, variants: g.variants, definition: g.definition })) },
     ...forumState(ctx, guildId, settings.forumChannelId),
     version: BUILD,
   };
@@ -115,6 +117,7 @@ async function storageView(ctx: AppContext, guildId: string): Promise<ConfigCont
 
 type ShowExtra = Partial<Pick<ConfigContext, 'models' | 'confirmLlmDisable' | 'voiceMode' | 'llmSelected' | 'llmConfirmDelete'>> & {
   page?: number;
+  glossary?: { page?: number; selected?: number | undefined; confirmDelete?: boolean };
   storagePending?: NonNullable<ConfigContext['storage']>['pending'];
   storageConfirm?: boolean;
 };
@@ -137,8 +140,9 @@ export async function handleConfigPanel(ctx: AppContext, interaction: CfgInterac
   }
 
   const show = async (section: Section | 'home', notice?: string, extra: ShowExtra = {}) => {
-    const { page, storagePending, storageConfirm, ...state } = extra;
+    const { page, storagePending, storageConfirm, glossary, ...state } = extra;
     const c = { ...(await context(ctx, guildId, m, notice, interaction.user.id)), ...state };
+    if (c.glossary && glossary) c.glossary = { ...c.glossary, ...glossary };
     if (c.storage) c.storage = { ...c.storage, pending: storagePending, confirmDisconnect: storageConfirm ?? false };
     const type = section === 'home' ? undefined : CHANNEL_TYPES[section];
     if (type !== undefined) {
@@ -152,6 +156,17 @@ export async function handleConfigPanel(ctx: AppContext, interaction: CfgInterac
     else if (interaction.isMessageComponent()) await interaction.update(payload);
     else if (interaction.isModalSubmit() && interaction.isFromMessage()) await interaction.update(payload);
   };
+
+  // Terme du glossaire visé (« g.<id> ») et page du menu (« gp.<page> »).
+  const termId = arg?.startsWith('g.') ? Number(arg.slice(2)) : Number.NaN;
+  const glossaryPage = arg?.startsWith('gp.') ? Number(arg.slice(3)) : 0;
+  const term = async () => {
+    const row = (await ctx.repos.listGlossary(guildId)).find((r) => r.id === termId);
+    if (!row) throw new UserError(t.glossaryGone);
+    return row;
+  };
+  /** Page du menu où se trouve le terme (25 par page, ordre alphabétique). */
+  const pageOfTerm = async (id = termId) => Math.max(0, Math.floor((await ctx.repos.listGlossary(guildId)).findIndex((r) => r.id === id) / 25));
 
   // Serveur de résumé visé (« s.<id> » dans l'identifiant du bouton).
   const serverId = arg?.startsWith('s.') ? Number(arg.slice(2)) : Number.NaN;
@@ -429,6 +444,104 @@ export async function handleConfigPanel(ctx: AppContext, interaction: CfgInterac
     case 'storageDisconnectConfirm':
       await ctx.storage.disconnect(guildId);
       return show('storage', t.storageDisconnected);
+
+    // ---------------------------------------------------------------- glossaire
+    case 'glossaryPick': {
+      if (!interaction.isStringSelectMenu()) return;
+      return show('glossary', undefined, { glossary: { page: glossaryPage, selected: Number(interaction.values[0]) } });
+    }
+    case 'glossaryPage':
+      return show('glossary', undefined, { glossary: { page: Math.max(0, glossaryPage) } });
+    case 'glossaryCancel':
+      return show('glossary', undefined, { glossary: { selected: termId, page: await pageOfTerm() } });
+    case 'glossaryAdd':
+    case 'glossaryEdit':
+    case 'glossaryImport': {
+      if (!interaction.isButton()) return;
+      if (action === 'glossaryImport') {
+        const lines = new TextInputBuilder().setCustomId('lines').setStyle(TextInputStyle.Paragraph).setMaxLength(4000).setRequired(true).setPlaceholder('Cors des vents (cor des vents) : objet qui accélère un navire.');
+        await interaction.showModal(
+          new ModalBuilder()
+            .setCustomId(encode({ type: 'cfg', action: 'glossaryImportSubmit' }))
+            .setTitle(t.glossaryModalImport)
+            .addLabelComponents(new LabelBuilder().setLabel(t.glossaryImportField).setDescription(t.glossaryImportHint).setTextInputComponent(lines)),
+        );
+        return;
+      }
+      const editing = action === 'glossaryEdit' ? await term() : null;
+      const termInput = new TextInputBuilder().setCustomId('term').setStyle(TextInputStyle.Short).setMaxLength(GLOSSARY_TERM_MAX).setRequired(true);
+      const variants = new TextInputBuilder().setCustomId('variants').setStyle(TextInputStyle.Short).setMaxLength(200).setRequired(false);
+      const definition = new TextInputBuilder().setCustomId('definition').setStyle(TextInputStyle.Paragraph).setMaxLength(GLOSSARY_DEFINITION_MAX).setRequired(true);
+      if (editing) {
+        termInput.setValue(editing.term);
+        if (editing.variants.length) variants.setValue(editing.variants.join(', '));
+        definition.setValue(editing.definition);
+      }
+      await interaction.showModal(
+        new ModalBuilder()
+          .setCustomId(editing ? encode({ type: 'cfg', action: 'glossaryEditSubmit', arg: `g.${editing.id}` }) : encode({ type: 'cfg', action: 'glossaryAddSubmit' }))
+          .setTitle(editing ? t.glossaryModalEdit : t.glossaryModalAdd)
+          .addLabelComponents(
+            new LabelBuilder().setLabel(t.glossaryTermField).setTextInputComponent(termInput),
+            new LabelBuilder().setLabel(t.glossaryVariantsField).setDescription(t.glossaryVariantsHint).setTextInputComponent(variants),
+            new LabelBuilder().setLabel(t.glossaryDefinitionField).setDescription(t.glossaryDefinitionHint).setTextInputComponent(definition),
+          ),
+      );
+      return;
+    }
+    case 'glossaryAddSubmit':
+    case 'glossaryEditSubmit': {
+      if (!interaction.isModalSubmit()) return;
+      const name = interaction.fields.getTextInputValue('term').trim();
+      const definition = interaction.fields.getTextInputValue('definition').trim().replace(/\s*\n\s*/g, ' ');
+      if (!name || !glossaryKey(name) || !definition) return show('glossary', noticeText('error', t.glossaryInvalid(GLOSSARY_TERM_MAX, GLOSSARY_DEFINITION_MAX)));
+      const entry = { term: name, variants: parseVariants(interaction.fields.getTextInputValue('variants'), name), definition };
+      const terms = await ctx.repos.listGlossary(guildId);
+      if (action === 'glossaryEditSubmit') {
+        const current = await term();
+        if (!(await ctx.repos.updateGlossaryTerm(guildId, current.id, entry, interaction.user.id))) return show('glossary', noticeText('error', t.glossaryClash(name)), { glossary: { selected: current.id, page: await pageOfTerm() } });
+        return show('glossary', noticeText('success', t.glossaryUpdated(name)), { glossary: { selected: current.id, page: await pageOfTerm() } });
+      }
+      if (terms.some((x) => x.key === glossaryKey(name))) return show('glossary', noticeText('error', t.glossaryClash(name)));
+      if (terms.length >= GLOSSARY_MAX_TERMS) return show('glossary', noticeText('error', t.glossaryFull(GLOSSARY_MAX_TERMS)));
+      await ctx.repos.upsertGlossary(guildId, [entry], interaction.user.id);
+      const added = (await ctx.repos.listGlossary(guildId)).find((x) => x.key === glossaryKey(name));
+      return show('glossary', noticeText('success', t.glossaryAdded(name)), { glossary: { selected: added?.id, page: added ? await pageOfTerm(added.id) : 0 } });
+    }
+    case 'glossaryImportSubmit': {
+      if (!interaction.isModalSubmit()) return;
+      const { entries, errors } = parseGlossaryImport(interaction.fields.getTextInputValue('lines'));
+      // Plafond : les termes déjà présents sont toujours mis à jour ; les nouveaux, dans la limite.
+      const known = new Set((await ctx.repos.listGlossary(guildId)).map((x) => x.key));
+      let room = GLOSSARY_MAX_TERMS - known.size;
+      const accepted = entries.filter((e) => known.has(glossaryKey(e.term)) || room-- > 0);
+      const result = await ctx.repos.upsertGlossary(guildId, accepted, interaction.user.id);
+      const lines = [noticeText('success', t.glossaryImported(result.added, result.updated))];
+      if (accepted.length < entries.length) lines.push(noticeText('warn', t.glossaryImportSkipped(entries.length - accepted.length, GLOSSARY_MAX_TERMS)));
+      if (errors.length) lines.push(noticeText('warn', t.glossaryImportErrors(errors.slice(0, 10).map((e) => `${e.line} (${t.glossaryImportReasons[e.reason]})`).join(', ') + (errors.length > 10 ? '…' : ''))));
+      return show('glossary', lines.join('\n'));
+    }
+    case 'glossaryDelete': {
+      const current = await term();
+      return show('glossary', t.glossaryDeleteAsk(current.term), { glossary: { selected: current.id, confirmDelete: true, page: await pageOfTerm() } });
+    }
+    case 'glossaryDeleteConfirm': {
+      const current = await term();
+      await ctx.repos.deleteGlossaryTerm(guildId, current.id);
+      return show('glossary', noticeText('success', t.glossaryDeleted(current.term)), { glossary: { page: await pageOfTerm() } });
+    }
+    case 'glossaryExport': {
+      if (!interaction.isButton()) return;
+      const terms = await ctx.repos.listGlossary(guildId);
+      const text = terms.map((g) => formatGlossaryLine({ term: g.term, variants: g.variants, definition: g.definition })).join('\n');
+      await interaction.reply({
+        content: noticeText('success', t.glossaryExportReady(terms.length)),
+        files: [{ attachment: Buffer.from(`${text}\n`, 'utf8'), name: 'glossaire.txt' }],
+        flags: MessageFlags.Ephemeral,
+        allowedMentions: { parse: [] },
+      });
+      return;
+    }
 
     // ---------------------------------------------------------------- serveurs de résumé
     case 'llmPick': {

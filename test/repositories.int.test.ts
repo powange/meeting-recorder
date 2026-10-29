@@ -215,6 +215,26 @@ describe.skipIf(!url)('Repositories (PostgreSQL)', () => {
     expect((await repos.getSummary(m.id))?.corrections).toEqual(['Pol et non Paul', 'Reporter à janvier']);
   });
 
+  it('glossaire : ajout et mise à jour (casse et accents ignorés), modification sans doublon, suppression', async () => {
+    const add = await repos.upsertGlossary('gg', [
+      { term: 'Ram Strat', variants: ['ramstrat'], definition: 'éperonner.' },
+      { term: 'Keg', variants: [], definition: 'tonneau.' },
+    ], 'u1');
+    expect(add).toEqual({ added: 2, updated: 0 });
+    expect(await repos.upsertGlossary('gg', [{ term: 'kég', variants: [], definition: 'tonneau explosif.' }], 'u2')).toEqual({ added: 0, updated: 1 });
+    const rows = await repos.listGlossary('gg');
+    expect(rows.map((r) => [r.term, r.definition])).toEqual([
+      ['kég', 'tonneau explosif.'],
+      ['Ram Strat', 'éperonner.'],
+    ]);
+    const ram = rows.find((r) => r.term === 'Ram Strat')!;
+    expect(await repos.updateGlossaryTerm('gg', ram.id, { term: 'KEG', variants: [], definition: 'x' }, 'u1')).toBe(false); // déjà pris
+    expect(await repos.updateGlossaryTerm('gg', ram.id, { term: 'Ram strat', variants: ['rs'], definition: 'éperonner avec une chaloupe.' }, 'u1')).toBe(true);
+    await repos.deleteGlossaryTerm('gg', rows[0]!.id);
+    expect((await repos.listGlossary('gg')).map((r) => [r.term, r.variants])).toEqual([['Ram strat', ['rs']]]);
+    expect(await repos.listGlossary('autre')).toEqual([]);
+  });
+
   it('clés d’API en clair chiffrées au démarrage, une seule fois', async () => {
     await repos.getSettings('gk', { timezone: 'Europe/Paris', locale: 'fr', reminderOffsetsMin: [], defaultDurationMin: 60, autoRecordDefault: false });
     await repos.addBackend({ guildId: 'gk', name: 'srv', type: 'openai', url: 'http://s/v1', apiKey: 'k-clair' });

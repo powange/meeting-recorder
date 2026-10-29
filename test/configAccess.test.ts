@@ -24,7 +24,7 @@ function context(owner: boolean) {
     settings: { get: async () => ({ guildId: 'g', locale: 'fr' }), messages: async () => m },
     optouts: { list: async () => [] },
     storage: { get: async () => undefined, available: () => [], blockedBySecretKey: () => false },
-    repos: { listLlmBackends: vi.fn(async () => []), listBackends: vi.fn(async () => []), updateSettings: vi.fn() },
+    repos: { listLlmBackends: vi.fn(async () => []), listGlossary: vi.fn(async () => []), listBackends: vi.fn(async () => []), updateSettings: vi.fn() },
     client: { channels: { fetch: async () => null } },
   };
 }
