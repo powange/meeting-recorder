@@ -101,8 +101,10 @@ describe('HttpTranscriptionBackend (serveur simulé)', () => {
       const path = req.url ?? '';
       if (path === '/ready') return res.writeHead(mode === 'notready' ? 503 : 200).end('{"status":"ready","model":"ggml-large-v3-turbo.bin"}');
       if (path === '/v1/models') return res.writeHead(200).end('{"data":[]}');
+      // Serveur HTTP de whisper.cpp : pas de /v1/models (404), santé sur /health à la racine.
+      if (path === '/wcpp/health') return res.writeHead(mode === 'notready' ? 503 : 200).end('{"status":"ok"}');
       if (path.startsWith('/redirige')) return res.writeHead(302, { location: 'http://169.254.169.254/' }).end();
-      if (path === '/v1/audio/transcriptions') {
+      if (path === '/v1/audio/transcriptions' || path === '/wcpp/v1/audio/transcriptions') {
         const { fields, file } = await readForm(req);
         received.push({ path, fields, ...(file ? { file } : {}), ...(req.headers.authorization ? { auth: req.headers.authorization } : {}) });
         if (mode === 'busy') return res.writeHead(429).end('{"error":{"code":"busy"}}');
@@ -150,6 +152,19 @@ describe('HttpTranscriptionBackend (serveur simulé)', () => {
     expect(await vibe().health()).toBe(true);
     mode = 'notready';
     expect(await vibe().health()).toBe(false);
+  });
+
+  it('compatible OpenAI sans /models (whisper.cpp) : santé sur /health, transcription sur /v1/audio/transcriptions', async () => {
+    const wcpp = () => new HttpTranscriptionBackend({ name: 'whisper-cpp', type: 'openai', url: `${base}/wcpp/v1`, model: 'large-v3-turbo', timeoutSec: 60, healthTimeoutSec: 2, concurrency: 1 });
+    mode = 'ok';
+    expect(await wcpp().health()).toBe(true);
+    expect((await wcpp().transcribe(audio, 'b.wav', opts)).segments).toEqual([{ start: 0.5, end: 1.8, text: ' Bonjour.', noSpeechProb: 0.01 }]);
+    expect(received.at(-1)!.path).toBe('/wcpp/v1/audio/transcriptions');
+    mode = 'notready';
+    expect(await wcpp().health()).toBe(false);
+    // Ni /models ni /health : serveur jugé hors service.
+    mode = 'ok';
+    expect(await new HttpTranscriptionBackend({ name: 'rien', type: 'openai', url: `${base}/absent/v1`, model: 'm', timeoutSec: 60, healthTimeoutSec: 2, concurrency: 1 }).health()).toBe(false);
   });
 
   it('vibe : 429 → erreur « busy »', async () => {

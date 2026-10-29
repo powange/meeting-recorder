@@ -14,7 +14,12 @@ vibe-server serve C:\models\ggml-large-v3-turbo.bin --host 0.0.0.0 --port 8080 -
 
 Pour qu'il démarre avec Windows, en faire un service, avec NSSM par exemple. Vibe n'a **ni authentification ni TLS** : l'exposer uniquement sur le LAN ou Tailscale. Vérifier depuis le serveur : `curl http://pc-main.tailnet:8080/ready`.
 
-**Secours** (facultatif) : un serveur compatible OpenAI (speaches / faster-whisper) sur une autre machine, ajouté après Vibe dans la liste.
+**Secours** (facultatif) : un serveur compatible OpenAI sur une autre machine, ajouté après Vibe dans la liste :
+
+- speaches / faster-whisper : type « compatible OpenAI », URL `http://hôte:8000/v1` ;
+- serveur HTTP de **whisper.cpp** (`whisper-server`), lancé avec `--inference-path /v1/audio/transcriptions` : type « compatible OpenAI », URL `http://hôte:port/v1`, modèle au choix (celui chargé par le serveur est utilisé). Il n'a pas de `/v1/models` : le bot vérifie sa santé sur `/health`. Il ne traite qu'une requête à la fois.
+
+Le protocole Wyoming (Home Assistant) n'est pas pris en charge : le bot ne parle qu'HTTP.
 
 ## 2. Déclarer les serveurs de transcription
 
