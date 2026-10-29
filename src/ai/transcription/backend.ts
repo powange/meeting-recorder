@@ -63,17 +63,26 @@ export class HttpTranscriptionBackend implements TranscriptionBackend {
   }
 
   async health(signal?: AbortSignal): Promise<boolean> {
-    // vibe : /ready répond 503 tant qu'aucun modèle n'est chargé ; openai : /models.
-    const url = this.config.type === 'vibe' ? `${trimSlash(this.config.url)}/ready` : `${this.base}/models`;
+    // vibe : /ready répond 503 tant qu'aucun modèle n'est chargé ; openai : /models, ou /health à
+    // la racine pour un serveur qui n'a pas /models (serveur HTTP de whisper.cpp).
+    if (this.config.type === 'vibe') return (await this.check(`${trimSlash(this.config.url)}/ready`, signal, true)) === true;
+    const models = await this.check(`${this.base}/models`, signal);
+    if (models !== 404) return models === true;
+    return (await this.check(`${this.base.replace(/\/v1$/, '')}/health`, signal)) === true;
+  }
+
+  /** Une adresse de santé : vrai si elle répond 2xx, 404 si elle n'existe pas, faux sinon. */
+  private async check(url: string, signal: AbortSignal | undefined, readModel = false): Promise<boolean | 404> {
     try {
       await assertUrlAllowed(url, this.allowedHosts);
       const res = await fetchWithTimeout(url, { headers: this.headers() }, this.config.healthTimeoutSec * 1000, signal, this.allowedHosts);
-      if (this.config.type === 'vibe' && res.ok) {
+      if (readModel && res.ok) {
         const body = (await res.json().catch(() => ({}))) as { model?: unknown };
         if (typeof body.model === 'string') this.loadedModel = body.model;
       } else {
         await res.body?.cancel();
       }
+      if (res.status === 404) return 404;
       return res.ok;
     } catch {
       return false;
