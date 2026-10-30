@@ -344,6 +344,14 @@ describe.skipIf(!url)('Traitement post-réunion (PostgreSQL, ffmpeg, serveurs si
     await repos.updateStep(meeting.id, 'export', { output: out });
     const renamed = { ...ctx, meeting: { ...meeting, title: 'Bureau renommé' } };
     expect(await steps.export(renamed)).toMatchObject({ path: 'Asso/2026-10-15 18h00 - Bureau', files: ['compte-rendu-2026-10-15.md', 'compte-rendu-2026-10-15.pdf', 'transcription-2026-10-15.md'] });
+    // Correction et glossaire : appliqués à la transcription jointe, le texte brut reste en base.
+    await repos.addCorrection(meeting.id, 'Bonsoir et non Bonjour');
+    await repos.upsertGlossary('g', [{ term: 'Tout le monde', variants: ['tous'], definition: 'les présents' }], 'o');
+    uploads.length = 0;
+    await steps.export(ctx);
+    expect(uploads.find((u) => u.name.startsWith('transcription'))!.text).toContain('**[18:00:00] Alice** : Bonsoir à Tout le monde.');
+    expect((await repos.listTranscript(meeting.id)).map((t) => t.text)).toContain('Bonjour à tous.');
+    for (const term of await repos.listGlossary('g')) await repos.deleteGlossaryTerm('g', term.id);
     await repos.removeStorage('g');
     // Étapes terminées : pas de reprise de cette réunion dans les tests suivants.
     for (const row of await repos.listPipeline(meeting.id)) await repos.updateStep(meeting.id, row.step, { status: 'done' });

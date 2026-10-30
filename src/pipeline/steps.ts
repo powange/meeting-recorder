@@ -15,7 +15,7 @@ import { ensureUnarchived } from '../discord/forum.js';
 import { fetchThread, isUnknownMessage } from '../discord/threads.js';
 import { meetingFolderName } from '../domain/storage.js';
 import { formatWhen } from '../domain/time.js';
-import { whisperPrompt } from '../domain/vocabulary.js';
+import { applyReplacements, transcriptReplacements, whisperPrompt } from '../domain/vocabulary.js';
 import { buildBlocks, cleanSegments, dropEchoes, formatClock, formatLine, mergeTranscript, type TranscriptLine } from '../domain/transcript.js';
 import type { PipelineStep } from '../domain/types.js';
 import { clock, planParts, uploadLimitBytes } from '../domain/audio.js';
@@ -468,11 +468,14 @@ async function reportContent(deps: PipelineDeps, ctx: StepContext, pending = fal
     summaryDisabled,
     ...(pending ? { summaryPending: true } : {}),
   };
+  // Transcription jointe : corrections « Pol et non Paul » et variantes du glossaire appliquées (le
+  // texte brut de Whisper reste en base) ; refaite à chaque publication, donc après une correction.
+  const replacements = transcriptReplacements((await repos.getSummary(meeting.id))?.corrections ?? [], await repos.listGlossary(meeting.guildId));
   const markdown = renderTranscriptMarkdown(
     meeting.title,
     subtitle,
     interleave<TranscriptEntry>(
-      lines.map((l) => ({ at: l.startAt, value: { time: formatClock(l.startAt, settings.timezone), name: l.name, text: l.text } })),
+      lines.map((l) => ({ at: l.startAt, value: { time: formatClock(l.startAt, settings.timezone), name: l.name, text: applyReplacements(l.text, replacements) } })),
       markers.map((mk) => ({ at: mk.at, value: { time: formatClock(mk.at, settings.timezone), marker: markerText(mk, agendaRows) } })),
     ),
   );

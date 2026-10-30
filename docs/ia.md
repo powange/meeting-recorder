@@ -51,6 +51,7 @@ Côté machine : **LM Studio** (Context Length 16384 ; GPU Offload au maximum ; 
 - **📥 Importer** plusieurs termes d'un coup, une ligne par terme : `terme (variante, variante) : définition`. Un terme déjà présent est mis à jour (casse et accents ignorés), les lignes illisibles sont signalées par leur numéro. **📤 Exporter** donne le fichier au même format, à retoucher puis réimporter.
 - Jusqu'à **100 termes** par serveur ; un terme choisi dans la liste se modifie ou se supprime (avec confirmation).
 - **Ce qui est envoyé** : à chaque passe du résumé, seules les définitions des termes (ou de leurs variantes) **cités dans le morceau** de transcription, les plus cités d'abord, dans la limite d'environ 600 tokens : un grand glossaire ne prend pas la place de la transcription. Les termes seuls (sans définition) complètent aussi le vocabulaire envoyé à Whisper, en dernier.
+- **Transcription jointe** : dans le fichier de transcription du compte rendu (et sa copie dans le stockage), les variantes d'écriture sont remplacées par le terme (mots entiers, casse ignorée). Le texte brut de Whisper reste en base ; le fichier est refait à chaque publication.
 - Modifier le glossaire pendant un résumé en plusieurs passes le fait repartir de zéro à la reprise suivante.
 
 ## 4. LiteLLM (facultatif)

@@ -115,14 +115,30 @@ export function correctionReplacements(corrections: readonly string[]): Replacem
   return [...byWrong.values()];
 }
 
-/** Applique les remplacements (mots entiers, casse ignorée ; majuscule initiale conservée). */
+/**
+ * Applique les remplacements (mots entiers, casse ignorée ; majuscule initiale conservée), en un
+ * seul passage : un texte remplacé n'est pas remplacé de nouveau, le terme le plus long l'emporte.
+ */
 export function applyReplacements(text: string, replacements: readonly Replacement[]): string {
-  let out = text;
-  for (const { wrong, right } of [...replacements].sort((a, b) => b.wrong.length - a.wrong.length)) {
-    const pattern = wrong.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
-    out = out.replace(new RegExp(`(?<![\\p{L}\\p{N}])${pattern}(?![\\p{L}\\p{N}])`, 'giu'), (found) =>
-      /^\p{Lu}/u.test(found) && /^\p{Ll}/u.test(right) ? right[0]!.toUpperCase() + right.slice(1) : right,
-    );
-  }
-  return out;
+  if (replacements.length === 0) return text;
+  const key = (s: string) => s.toLowerCase().replace(/\s+/g, ' ');
+  const byWrong = new Map(replacements.map((r) => [key(r.wrong), r.right]));
+  const patterns = [...replacements]
+    .sort((a, b) => b.wrong.length - a.wrong.length)
+    .map(({ wrong }) => wrong.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'));
+  return text.replace(new RegExp(`(?<![\\p{L}\\p{N}])(?:${patterns.join('|')})(?![\\p{L}\\p{N}])`, 'giu'), (found) => {
+    const right = byWrong.get(key(found)) ?? found;
+    return /^\p{Lu}/u.test(found) && /^\p{Ll}/u.test(right) ? right[0]!.toUpperCase() + right.slice(1) : right;
+  });
+}
+
+/**
+ * Remplacements de la transcription jointe au compte rendu : variantes d'écriture du glossaire
+ * remplacées par le terme officiel, et consignes « Pol et non Paul » (prioritaires sur un même terme).
+ */
+export function transcriptReplacements(corrections: readonly string[], glossary: readonly { term: string; variants: readonly string[] }[]): Replacement[] {
+  const byWrong = new Map<string, Replacement>();
+  for (const { term, variants } of glossary) for (const wrong of variants) byWrong.set(wrong.toLowerCase(), { wrong, right: term });
+  for (const r of correctionReplacements(corrections)) byWrong.set(r.wrong.toLowerCase(), r);
+  return [...byWrong.values()];
 }

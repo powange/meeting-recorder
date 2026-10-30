@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyReplacements, correctionReplacements, correctionTerms, parseVocabulary, PROMPT_MAX, whisperPrompt } from '../src/domain/vocabulary.js';
+import { applyReplacements, correctionReplacements, correctionTerms, parseVocabulary, PROMPT_MAX, transcriptReplacements, whisperPrompt } from '../src/domain/vocabulary.js';
 
 describe('vocabulaire du serveur', () => {
   it('virgules, points-virgules ou retours à la ligne ; doublons et vides retirés', () => {
@@ -61,5 +61,10 @@ describe('remplacements tirés des consignes de correction', () => {
   it('mots entiers, casse ignorée, majuscule initiale conservée', () => {
     const r = correctionReplacements(['cors des vents et non corps des vents', 'Pol et non Paul']);
     expect(applyReplacements('Corps des vents : deux corps  des vents ? Paul et Paulette, paul.', r)).toBe('Cors des vents : deux cors des vents ? Pol et Paulette, Pol.');
+  });
+  it('transcription jointe : variantes du glossaire remplacées par le terme, une correction l’emporte', () => {
+    const r = transcriptReplacements(['Ram Strat et non ramstrat'], [{ term: 'RamStrat', variants: ['ram strat', 'ramstrat'] }, { term: 'GN', variants: ['gé enne'] }]);
+    expect(applyReplacements('le ram strat, la ramstrat et le gé enne', r)).toBe('le RamStrat, la Ram Strat et le GN');
+    expect(transcriptReplacements([], [])).toEqual([]);
   });
 });
