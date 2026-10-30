@@ -9,11 +9,13 @@ import {
   StringSelectMenuBuilder,
   TextInputBuilder,
   TextInputStyle,
+  UserSelectMenuBuilder,
   type ButtonInteraction,
   type ChatInputCommandInteraction,
   type ModalSubmitInteraction,
   type RoleSelectMenuInteraction,
   type StringSelectMenuInteraction,
+  type UserSelectMenuInteraction,
 } from 'discord.js';
 import type { AppContext } from '../../context.js';
 import { AGENDA_DETAIL_MAX, AGENDA_TITLE_MAX, canEditItem, checkAddItem, moveItem } from '../../domain/agenda.js';
@@ -41,7 +43,12 @@ import { noticeContainer, noticeText } from '../ui/notice.js';
 import { Accent } from '../ui/palette.js';
 import { handleDatePoll, type PollAction } from './datePoll.js';
 
-export type ComponentInteraction = ButtonInteraction<'cached'> | StringSelectMenuInteraction<'cached'> | RoleSelectMenuInteraction<'cached'> | ModalSubmitInteraction<'cached'>;
+export type ComponentInteraction =
+  | ButtonInteraction<'cached'>
+  | StringSelectMenuInteraction<'cached'>
+  | RoleSelectMenuInteraction<'cached'>
+  | UserSelectMenuInteraction<'cached'>
+  | ModalSubmitInteraction<'cached'>;
 
 /** Traite un bouton, menu ou formulaire dont le customId a été décodé. */
 export async function handleAction(
@@ -272,6 +279,58 @@ export async function handleAction(
       if (ctx.recordings.isRecording(meeting.id)) throw new UserError(m.errors.alreadyRecording);
       const outcome = await ctx.pipeline.requestRegeneration(meeting.id, interaction.user.id);
       await interaction.update({ components: [noticeContainer('success', m.pipeline.regenerationNotice(m.pipeline.regeneration[outcome]!))] });
+      return;
+    }
+
+    // ---------------------------------------------------------------- organisateur
+
+    case 'meeting.organizer': {
+      // Choix du nouvel organisateur (à la place du panneau « Gérer »).
+      if (!interaction.isButton()) return;
+      requireManager(scope);
+      if (meeting.status === 'cancelled') throw new UserError(m.errors.meetingClosed);
+      const panel = new ContainerBuilder()
+        .setAccentColor(Accent.brand)
+        .addTextDisplayComponents((t) => t.setContent(`## 👤 ${m.manage.organizerTitle}\n-# ${truncate(meeting.title, 120)}\n${m.manage.organizerCurrent(meeting.organizerId)}`))
+        .addActionRowComponents(
+          new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(
+            new UserSelectMenuBuilder().setCustomId(encode({ type: 'meeting.organizerSelect', meetingId: meeting.id })).setPlaceholder(m.manage.organizerPick).setMinValues(1).setMaxValues(1),
+          ),
+        )
+        .addActionRowComponents(
+          new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder().setCustomId(encode({ type: 'meeting.manage', meetingId: meeting.id })).setLabel(m.manage.back).setEmoji('↩️').setStyle(ButtonStyle.Secondary),
+          ),
+        );
+      await interaction.update({ components: [panel.toJSON()], allowedMentions: { parse: [] } });
+      return;
+    }
+
+    case 'meeting.organizerSelect': {
+      if (!interaction.isUserSelectMenu()) return;
+      requireManager(scope);
+      const chosen = interaction.users.first();
+      if (!chosen) return;
+      if (chosen.bot) throw new UserError(m.manage.organizerBot);
+      if (chosen.id === meeting.organizerId) throw new UserError(m.manage.organizerSame);
+      await interaction.update({
+        components: [
+          confirmPrompt(
+            m.manage.organizerAsk(meeting.title, chosen.id),
+            { id: encode({ type: 'organizer.confirm', meetingId: meeting.id, userId: chosen.id }), label: m.manage.organizerConfirm, emoji: '👤' },
+            { id: encode({ type: 'meeting.manage', meetingId: meeting.id }), label: m.buttons.cancel },
+          ),
+        ],
+        allowedMentions: { parse: [] },
+      });
+      return;
+    }
+
+    case 'organizer.confirm': {
+      if (!interaction.isButton()) return;
+      requireManager(scope); // revérifié : les droits ont pu changer depuis le choix
+      const updated = await ctx.meetings.transferOrganizer(meeting.id, action.userId, interaction.user.id);
+      await interaction.update({ components: [await managerPanel(ctx, updated, { notice: noticeText('success', m.manage.organizerDone(action.userId)) })], allowedMentions: { parse: [] } });
       return;
     }
 

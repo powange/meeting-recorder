@@ -46,6 +46,7 @@ export type Action =
   | { type: 'rec.start'; meetingId: string }
   | { type: 'rec.stop'; meetingId: string }
   | { type: 'rec.stopConfirm'; meetingId: string }
+  | { type: 'organizer.confirm'; meetingId: string; userId: string }
   | { type: 'rec.next'; meetingId: string }
   | { type: 'rec.goto'; meetingId: string }
   | { type: 'rec.note'; meetingId: string }
@@ -151,6 +152,8 @@ export const MEETING_VERBS = [
   'reslot',
   'reslotSelect',
   'dismiss',
+  'organizer',
+  'organizerSelect',
 ] as const;
 type MeetingVerbType = `meeting.${(typeof MEETING_VERBS)[number]}`;
 
@@ -217,6 +220,9 @@ export function encode(action: Action): string {
     case 'consent.refuse':
     case 'consent.accept':
       parts.push('consent', action.type.split('.')[1]!);
+      break;
+    case 'organizer.confirm':
+      parts.push('organizer', 'confirm', action.meetingId, action.userId);
       break;
     default: {
       const [group, verb] = action.type.split('.') as [string, string];
@@ -286,6 +292,12 @@ export function decode(customId: string): Action | null {
     if (verb === 'createRetry') return { type: 'meeting.createRetry' };
   }
   if (!isUuid(meetingId)) return null;
+
+  // Transmission de l'organisation : « organizer:confirm:<meetingId>:<userId> ».
+  if (group === 'organizer') {
+    if (verb !== 'confirm' || rest.length !== 3 || !/^\d{15,22}$/.test(a ?? '')) return null;
+    return { type: 'organizer.confirm', meetingId, userId: a! };
+  }
 
   if (group === 'meeting') {
     if (rest.length !== 2 || !MEETING_VERBS.includes(verb as (typeof MEETING_VERBS)[number])) return null;

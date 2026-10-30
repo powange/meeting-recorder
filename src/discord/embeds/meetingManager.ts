@@ -51,7 +51,11 @@ export function renderMeetingManager(
         button('poll.add', p.addSlot, '➕'),
         button('poll.remove', p.removeSlot, '➖'),
       ),
-      new ActionRowBuilder<ButtonBuilder>().addComponents(button('meeting.edit', g.edit, '✏️'), button('meeting.cancel', g.cancel, '❌', ButtonStyle.Danger)),
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        button('meeting.edit', g.edit, '✏️'),
+        button('meeting.organizer', g.organizer, '👤'),
+        button('meeting.cancel', g.cancel, '❌', ButtonStyle.Danger),
+      ),
     );
     for (const row of rows) container.addActionRowComponents(row);
     addInvites(container, meeting, state, m);
@@ -60,6 +64,8 @@ export function renderMeetingManager(
   const main = new ActionRowBuilder<ButtonBuilder>();
   if (open) main.addComponents(button('meeting.edit', g.edit, '✏️'));
   main.addComponents(button('meeting.duplicate', g.duplicate, '📄'));
+  // Passer la main (toute réunion sauf annulée : une réunion close garde son compte rendu à corriger).
+  if (meeting.status !== 'cancelled') main.addComponents(button('meeting.organizer', g.organizer, '👤'));
   if (open) main.addComponents(button('meeting.autoRecord', meeting.autoRecord ? g.autoOff : g.autoOn, meeting.autoRecord ? '⏸️' : '🔴'));
   rows.push(main);
   if (open && meeting.status === 'scheduled' && state.pollSlots) rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(button('meeting.reslot', m.datePoll.reslot, '🗳️')));

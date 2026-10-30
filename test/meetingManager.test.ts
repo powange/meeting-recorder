@@ -27,6 +27,7 @@ describe('panneau « Gérer »', () => {
     expect(actions(renderMeetingManager(meeting, { hasRecording: false }, m))).toEqual([
       'meeting.edit',
       'meeting.duplicate',
+      'meeting.organizer',
       'meeting.autoRecord',
       'rec.start',
       'meeting.end',
@@ -52,8 +53,9 @@ describe('panneau « Gérer »', () => {
   it('clôture : confirmation demandée', () => {
     expect(actions(renderMeetingManager(meeting, { hasRecording: false, confirmEnd: true }, m))).toContain('meeting.endConfirm');
   });
-  it('réunion close et enregistrée : dupliquer et régénérer seulement', () => {
-    expect(actions(renderMeetingManager({ ...meeting, status: 'ended' }, { hasRecording: true }, m))).toEqual(['meeting.duplicate', 'meeting.regen', 'meeting.regenAll']);
+  it('réunion close et enregistrée : dupliquer, changer d’organisateur et régénérer seulement ; annulée : pas de changement d’organisateur', () => {
+    expect(actions(renderMeetingManager({ ...meeting, status: 'ended' }, { hasRecording: true }, m))).toEqual(['meeting.duplicate', 'meeting.organizer', 'meeting.regen', 'meeting.regenAll']);
+    expect(actions(renderMeetingManager({ ...meeting, status: 'cancelled' }, { hasRecording: false }, m))).not.toContain('meeting.organizer');
   });
 });
 

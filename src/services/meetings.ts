@@ -186,6 +186,31 @@ export class MeetingService {
    * pas mentionner (non mentionnable, sans la permission « Mentionner @everyone ») : ses membres
    * sont mentionnés un par un.
    */
+  /**
+   * Organisation transmise à `userId` (droits et notifications d'organisateur) par `by`
+   * (organisateur ou gestionnaire). Toute réunion sauf annulée, close comprise (correction du
+   * compte rendu). Annoncé dans le post, le nouvel organisateur y est mentionné.
+   */
+  async transferOrganizer(meetingId: string, userId: string, by: string): Promise<MeetingRow> {
+    const meeting = await this.repos.getMeeting(meetingId);
+    const m = await this.settings.messages(meeting?.guildId ?? '');
+    if (!meeting || meeting.status === 'cancelled') throw new UserError(m.errors.meetingClosed);
+    if (meeting.organizerId === userId) throw new UserError(m.manage.organizerSame);
+    const updated = (await this.repos.updateMeeting(meetingId, { organizerId: userId }))!;
+    this.cards.refresh(meetingId);
+    this.onChange(meeting.guildId);
+    const thread = await fetchThread(this.client, meeting.threadId).catch(() => null);
+    if (thread) {
+      await ensureUnarchived(thread).catch(() => undefined);
+      const byName = (await displayName(this.client, meeting.guildId, by)) ?? '?';
+      await thread
+        .send({ content: m.manage.organizerChanged(meeting.title, userId, byName), allowedMentions: { users: [userId] } })
+        .catch((err) => this.warn(updated, 'Annonce du nouvel organisateur impossible', err));
+    }
+    this.log.info({ meetingId, from: meeting.organizerId, to: userId, by }, 'Organisateur changé');
+    return updated;
+  }
+
   async inviteRoles(guild: Guild, meetingId: string, roleIds: readonly string[], none = false): Promise<void> {
     const meeting = await this.repos.getMeeting(meetingId);
     if (!meeting || (meeting.status !== 'scheduled' && meeting.status !== 'polling')) {

@@ -78,7 +78,7 @@ export function spyObject<T extends object>(overrides: Partial<Record<keyof T | 
   });
 }
 
-export type InteractionKind = 'button' | 'modal' | 'select';
+export type InteractionKind = 'button' | 'modal' | 'select' | 'userSelect';
 
 /** Interaction de serveur (bouton, menu ou formulaire) avec ses réponses enregistrées. */
 export function fakeInteraction(opts: {
@@ -121,8 +121,9 @@ export function fakeInteraction(opts: {
     isButton: () => opts.kind === 'button',
     isModalSubmit: () => opts.kind === 'modal',
     isStringSelectMenu: () => opts.kind === 'select',
-    isAnySelectMenu: () => opts.kind === 'select',
+    isAnySelectMenu: () => opts.kind === 'select' || opts.kind === 'userSelect',
     isRoleSelectMenu: () => false,
+    isUserSelectMenu: () => opts.kind === 'userSelect',
     isChannelSelectMenu: () => false,
     isMessageComponent: () => opts.kind !== 'modal',
     isFromMessage: () => true,

@@ -90,7 +90,7 @@ describe('panneau de réponse', () => {
     const types = flatten(renderMeetingManager(meeting, { hasRecording: false }, m))
       .filter((c) => typeof c.custom_id === 'string')
       .map((c) => decode(c.custom_id as string)?.type);
-    expect(types).toEqual(['poll.fix', 'poll.add', 'poll.remove', 'meeting.edit', 'meeting.cancel', 'meeting.roles', 'meeting.everyone', 'meeting.none']);
+    expect(types).toEqual(['poll.fix', 'poll.add', 'poll.remove', 'meeting.edit', 'meeting.organizer', 'meeting.cancel', 'meeting.roles', 'meeting.everyone', 'meeting.none']);
   });
 });
 

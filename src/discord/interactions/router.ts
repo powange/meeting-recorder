@@ -48,7 +48,7 @@ export async function routeInteraction(ctx: AppContext, interaction: Interaction
         await handleBackendPanel(ctx, interaction, action.action, action.backendId);
         return;
       }
-      if (!interaction.isButton() && !interaction.isStringSelectMenu() && !interaction.isRoleSelectMenu() && !interaction.isModalSubmit()) return;
+      if (!interaction.isButton() && !interaction.isStringSelectMenu() && !interaction.isRoleSelectMenu() && !interaction.isUserSelectMenu() && !interaction.isModalSubmit()) return;
       // Un formulaire doit être acquitté en moins de 3 s : on le fait avant tout accès à la BDD.
       // Toutes les réponses aux formulaires sont éphémères (replyEphemeral gère l'état « différé »).
       if (interaction.isModalSubmit()) await interaction.deferReply({ flags: MessageFlags.Ephemeral });

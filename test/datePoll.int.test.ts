@@ -1,5 +1,6 @@
 import { ChannelType } from 'discord.js';
 import { pino } from 'pino';
+import { UserError } from '../src/lib/errors.js';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildConfig } from '../src/config/index.js';
 import { createDb, runMigrations } from '../src/db/client.js';
@@ -163,5 +164,20 @@ describe.skipIf(!url)('Sondage de date : du sondage à la réunion planifiée', 
     await service.removeSlot(meeting.id, slots[0]!.id);
     await service.removeSlot(meeting.id, slots[1]!.id);
     await expect(service.removeSlot(meeting.id, slots[2]!.id)).rejects.toThrow('dernier créneau');
+  });
+
+  it('changement d’organisateur : transmis, annoncé dans le post (seul le nouveau est mentionné) ; refusé pour la même personne ou une réunion annulée', async () => {
+    const meeting = await service.createPoll(guild as never, 'organizer', { title: 'Comité', description: '', voiceChannelId: 'v', slots: slotsInput, closesAt: new Date(Date.now() + 3_600_000) });
+    const t = threads.find((x) => x.thread.id === meeting.threadId)!;
+    const before = t.sent.length;
+    const updated = await service.transferOrganizer(meeting.id, '508017247537725460', 'organizer');
+    expect(updated.organizerId).toBe('508017247537725460');
+    expect((await repos.getMeeting(meeting.id))?.organizerId).toBe('508017247537725460');
+    const announce = t.sent.slice(before).at(-1)!;
+    expect(announce.content).toContain('Nouvel organisateur pour « Comité » : <@508017247537725460>');
+    expect(announce.allowedMentions).toEqual({ users: ['508017247537725460'] });
+    await expect(service.transferOrganizer(meeting.id, '508017247537725460', 'x')).rejects.toBeInstanceOf(UserError);
+    await repos.updateMeeting(meeting.id, { status: 'cancelled' });
+    await expect(service.transferOrganizer(meeting.id, '111111111111111111', 'x')).rejects.toBeInstanceOf(UserError);
   });
 });

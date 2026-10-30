@@ -474,6 +474,16 @@ export const fr = {
 
   manage: {
     title: 'Gérer la réunion',
+    organizer: "Changer d'organisateur",
+    organizerTitle: "Changer d'organisateur",
+    organizerCurrent: (userId: string) => `Organisateur actuel : <@${userId}>. Il a les droits sur la réunion (modifier, enregistrer, corriger le compte rendu) et reçoit ses notifications.`,
+    organizerPick: 'Choisir le nouvel organisateur…',
+    organizerAsk: (title: string, userId: string) => `Transmettre l'organisation de « ${title} » à <@${userId}> ? L'organisateur actuel perd ses droits sur la réunion, sauf s'il est gestionnaire.`,
+    organizerConfirm: 'Confirmer : transmettre',
+    organizerDone: (userId: string) => `Organisation transmise à <@${userId}>.`,
+    organizerSame: 'Cette personne est déjà l’organisatrice de la réunion.',
+    organizerBot: 'Un bot ne peut pas organiser une réunion.',
+    organizerChanged: (title: string, userId: string, by: string) => `👤 Nouvel organisateur pour « ${title} » : <@${userId}>\n-# Transmis par ${by}.`,
     edit: 'Modifier',
     duplicate: 'Dupliquer',
     autoOn: 'Enregistrer automatiquement',
