@@ -60,7 +60,12 @@ interface RunContext {
   details: Map<PipelineStep, string>;
   status: StatusMessage;
   plog: Logger;
+  /** Arrêt du bot, ou annulation de ce traitement (nouveau résumé demandé pendant le résumé). */
+  signal: AbortSignal;
 }
+
+/** Suite d'une demande de nouveau résumé (correction, régénération), selon l'étape en cours. */
+export type RegenerationOutcome = 'scheduled' | 'restarted' | 'after' | 'included';
 
 /**
  * Relances automatiques d'une étape qui dépend d'un serveur (transcription, résumé, copie vers le
@@ -90,6 +95,12 @@ export class PipelineService {
   private readonly refreshAfterRun = new Set<string>();
   /** Réunions à reprendre telles quelles dès la fin du traitement en cours (relance automatique échue). */
   private readonly resumeAfterRun = new Set<string>();
+  /** Réunions dont le résumé est à refaire dès la fin du traitement en cours (correction pendant le traitement). */
+  private readonly regenerateAfterRun = new Set<string>();
+  /** Annulation propre à chaque traitement en cours. */
+  private readonly runAborts = new Map<string, AbortController>();
+  /** Étapes en cours d'exécution, par réunion. */
+  private readonly runningSteps = new Map<string, Set<PipelineStep>>();
   /** Relances automatiques déjà faites, et relance programmée, par réunion. */
   private readonly autoRetries = new Map<string, Map<PipelineStep, number>>();
   private readonly retryTimers = new Map<string, { timer: NodeJS.Timeout; step: PipelineStep }>();
@@ -176,6 +187,31 @@ export class PipelineService {
     this.retryTimers.delete(meetingId);
     if (this.running.has(meetingId)) this.resumeAfterRun.add(meetingId); // l'audio complet tourne encore
     await this.enqueue(meetingId);
+  }
+
+  /**
+   * Nouveau résumé demandé (correction, « Régénérer ») alors qu'un traitement peut tourner :
+   * - aucun traitement : régénération normale (`scheduled`) ;
+   * - résumé pas encore commencé : il lira toutes les consignes (`included`) ;
+   * - résumé en cours : annulé aussitôt, puis refait avec toutes les consignes (`restarted`) ;
+   * - résumé déjà fait (publication, copie en cours) : refait dès la fin (`after`).
+   * La personne est prévenue à la publication, comme pour une régénération.
+   */
+  async requestRegeneration(meetingId: string, requestedBy?: string): Promise<RegenerationOutcome> {
+    if (!this.running.has(meetingId)) {
+      await this.regenerate(meetingId, false, requestedBy);
+      return 'scheduled';
+    }
+    if (requestedBy) await this.deps.repos.addReportRequester(meetingId, requestedBy);
+    if (this.runningSteps.get(meetingId)?.has('summarize')) {
+      this.regenerateAfterRun.add(meetingId);
+      this.runAborts.get(meetingId)?.abort();
+      return 'restarted';
+    }
+    const summarize = (await this.deps.repos.listPipeline(meetingId)).find((r) => r.step === 'summarize');
+    if (summarize && summarize.status !== 'done') return 'included';
+    this.regenerateAfterRun.add(meetingId);
+    return 'after';
   }
 
   /** Nouveau compte rendu : résumé et publication refaits ; la transcription aussi si demandé. */
@@ -288,10 +324,19 @@ export class PipelineService {
       // paraisse « libre » un instant (elle serait doublée).
       if (this.stopping) return;
       if (!this.refreshAfterRun.delete(meetingId)) {
+        // Nouveau résumé demandé pendant le traitement (correction) : refait aussitôt, avec toutes
+        // les consignes, sans reprendre les notes partielles du résumé interrompu.
+        if (this.regenerateAfterRun.delete(meetingId)) {
+          this.resumeAfterRun.delete(meetingId);
+          await this.deps.repos.resetSteps(meetingId, ['summarize', 'publish', 'export']).catch((err) => this.deps.log.error({ meetingId, err }, 'Nouveau résumé impossible'));
+          await this.deps.repos.updateStep(meetingId, 'summarize', { output: null }).catch(() => undefined);
+          continue;
+        }
         if (this.resumeAfterRun.delete(meetingId)) continue;
         return;
       }
       this.resumeAfterRun.delete(meetingId);
+      this.regenerateAfterRun.delete(meetingId); // tout est refait de toute façon
       await this.deps.repos.resetSteps(meetingId, [...PIPELINE_STEPS]).catch((err) => this.deps.log.error({ meetingId, err }, 'Mise à jour du traitement impossible'));
     }
   }
@@ -306,13 +351,26 @@ export class PipelineService {
     const status = new StatusMessage(this.deps, meeting, m, () => this.retryTimers.get(meetingId)?.step ?? null);
     const plog = log.child({ meetingId });
 
+    const abort = new AbortController();
+    this.runAborts.set(meetingId, abort);
+    const run = { meeting, settings, m, details, status, plog, signal: AbortSignal.any([this.abort.signal, abort.signal]) };
+    try {
+      await this.runWaves(meetingId, run);
+    } finally {
+      this.runAborts.delete(meetingId);
+      this.runningSteps.delete(meetingId);
+    }
+  }
+
+  private async runWaves(meetingId: string, run: RunContext): Promise<void> {
+    const { repos } = this.deps;
+    const { status, details, plog } = run;
     // Audio complet et transcription en même temps (la transcription repart des pistes de chaque
     // personne, pas du mix) ; la suite attend les deux. Une étape arrêtée (échec, relance
     // automatique, arrêt du bot) n'interrompt pas l'autre, mais le traitement s'arrête ensuite.
     const all = await repos.listPipeline(meetingId);
     const published = all.some((r) => r.step === 'publish' && r.status === 'done');
     let mixRedone = false;
-    const run = { meeting, settings, m, details, status, plog };
     for (const wave of waves(all.filter((r) => r.status !== 'done'))) {
       if (this.stopping) return;
       const outcomes = await Promise.all(wave.map((row) => this.runStep(row, run)));
@@ -359,6 +417,14 @@ export class PipelineService {
    * complet en échec (voir run).
    */
   private async runStep(row: PipelineStepRow, run: RunContext): Promise<StepOutcome> {
+    try {
+      return await this.runStepInner(row, run);
+    } finally {
+      this.runningSteps.get(run.meeting.id)?.delete(row.step); // étape finie : plus « en cours »
+    }
+  }
+
+  private async runStepInner(row: PipelineStepRow, run: RunContext): Promise<StepOutcome> {
     const { repos } = this.deps;
     const { meeting, settings, m, details, status, plog } = run;
     const meetingId = meeting.id;
@@ -367,6 +433,8 @@ export class PipelineService {
     // l'étape parallèle) ; la vague s'arrête là.
     if (row.status === 'failed') return 'failed';
     await repos.updateStep(meetingId, row.step, { status: 'running', attempts: row.attempts + 1, startedAt: new Date(), error: null });
+    const active = this.runningSteps.get(meetingId) ?? new Set<PipelineStep>();
+    this.runningSteps.set(meetingId, active.add(row.step));
     await status.update(details);
     plog.info({ step: row.step }, 'Étape démarrée');
     try {
@@ -375,7 +443,7 @@ export class PipelineService {
         meeting,
         settings,
         m,
-        signal: this.abort.signal,
+        signal: run.signal,
         log: plog.child({ step: row.step }),
         progress: (detail) => {
           details.set(row.step, detail);
@@ -396,8 +464,10 @@ export class PipelineService {
         await this.notifyRequesters(meeting, m).catch((e) => plog.warn({ err: errorMessage(e) }, 'Avis de mise à jour impossible'));
       }
     } catch (err) {
-      if (this.abort.signal.aborted) {
-        await repos.updateStep(meetingId, row.step, { status: 'pending' }); // reprise au redémarrage
+      // Arrêt du bot (reprise au redémarrage) ou traitement annulé pour un nouveau résumé : ni
+      // échec ni relance automatique, l'étape est simplement remise en attente.
+      if (run.signal.aborted) {
+        await repos.updateStep(meetingId, row.step, { status: 'pending' });
         return 'stop';
       }
       const message = errorMessage(err);

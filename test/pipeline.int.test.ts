@@ -792,6 +792,62 @@ describe.skipIf(!url)('Traitement post-réunion (PostgreSQL, ffmpeg, serveurs si
     expect(await repos.syncBlocks(meeting.id, [], [])).toHaveLength(2);
   });
 
+  it('nouveau résumé demandé pendant le traitement : résumé en cours annulé et refait, sinon pris en compte ou refait après', async () => {
+    const waitFor = async (cond: () => boolean) => {
+      for (let i = 0; i < 300 && !cond(); i++) await new Promise((r) => setTimeout(r, 10));
+    };
+    const scenario = async (blockAt: 'summarize' | 'transcribe' | 'publish') => {
+      const meeting = await seedMeeting();
+      const calls: string[] = [];
+      let release!: () => void;
+      let blocked = true;
+      const gate = new Promise<void>((r) => (release = r));
+      const step = (name: 'transcribe' | 'summarize' | 'publish'): StepFn => async (ctx) => {
+        if (ctx.meeting.id !== meeting.id) return {};
+        calls.push(name);
+        if (name === 'summarize') {
+          // Notes partielles du résumé en cours : effacées si le résumé est refait.
+          const previous = (await repos.listPipeline(meeting.id)).find((r) => r.step === 'summarize')?.output;
+          calls.push(previous ? 'summarize:avec-notes' : 'summarize:sans-notes');
+          await repos.updateStep(meeting.id, 'summarize', { output: { checkpoint: { key: 'k', partials: [] } } });
+        }
+        if (name === blockAt && blocked) {
+          blocked = false;
+          // Bloqué jusqu'à la demande ; un résumé annulé s'interrompt (signal du traitement).
+          await Promise.race([gate, new Promise((_, reject) => ctx.signal.addEventListener('abort', () => reject(new Error('annulé'))))]);
+        }
+        return {};
+      };
+      const quick: StepFn = async () => ({});
+      const engine = new PipelineService(deps(), { mix: quick, transcribe: step('transcribe'), summarize: step('summarize'), publish: step('publish'), export: quick });
+      await engine.schedule(meeting.id);
+      await waitFor(() => calls.includes(blockAt));
+      const outcome = await engine.requestRegeneration(meeting.id, 'correcteur');
+      release();
+      await waitIdle(engine, meeting.id);
+      await waitFor(() => !engine.isQueued(meeting.id));
+      const rows = await repos.listPipeline(meeting.id);
+      expect(rows.every((r) => r.status === 'done')).toBe(true);
+      return { outcome, calls };
+    };
+
+    // Pendant le résumé : annulé aussitôt, refait de zéro (sans les notes partielles), publié une fois.
+    const during = await scenario('summarize');
+    expect(during.outcome).toBe('restarted');
+    expect(during.calls).toEqual(['transcribe', 'summarize', 'summarize:sans-notes', 'summarize', 'summarize:sans-notes', 'publish']);
+
+    // Avant le résumé (transcription en cours) : rien de plus, le résumé lira toutes les consignes.
+    const before = await scenario('transcribe');
+    expect(before.outcome).toBe('included');
+    expect(before.calls.filter((c) => c === 'summarize')).toHaveLength(1);
+
+    // Pendant la publication : elle se termine, puis nouveau résumé et nouvelle publication.
+    const after = await scenario('publish');
+    expect(after.outcome).toBe('after');
+    expect(after.calls.filter((c) => c === 'summarize')).toHaveLength(2);
+    expect(after.calls.filter((c) => c === 'publish')).toHaveLength(2);
+  }, 60_000);
+
   it('moteur : « Réessayer maintenant » relance sans attendre le délai automatique', async () => {
     const meeting = await seedMeeting();
     let failures = 1;

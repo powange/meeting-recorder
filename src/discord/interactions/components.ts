@@ -240,10 +240,11 @@ export async function handleAction(
       if (!interaction.isModalSubmit()) return;
       requireManager(scope);
       const correction = interaction.fields.getTextInputValue('correction').trim();
-      if (ctx.pipeline.isQueued(meeting.id)) throw new UserError(m.pipeline.running_reply);
+      // Toujours enregistrée, même pendant un traitement (une autre correction en cours) : le
+      // résumé en cours est relancé pour tenir compte de toutes les consignes.
       if (!(await ctx.repos.addCorrection(meeting.id, correction))) throw new UserError(m.report.correctNoSummary);
-      await ctx.pipeline.regenerate(meeting.id, false, interaction.user.id);
-      await replyNotice(interaction, 'success', m.report.correctSaved);
+      const outcome = await ctx.pipeline.requestRegeneration(meeting.id, interaction.user.id);
+      await replyNotice(interaction, 'success', m.pipeline.correctionNotice(m.pipeline.regeneration[outcome]!));
       return;
     }
 
@@ -269,9 +270,8 @@ export async function handleAction(
       if (!interaction.isButton()) return;
       requireManager(scope);
       if (ctx.recordings.isRecording(meeting.id)) throw new UserError(m.errors.alreadyRecording);
-      if (ctx.pipeline.isQueued(meeting.id)) throw new UserError(m.pipeline.running_reply);
-      await ctx.pipeline.regenerate(meeting.id, false, interaction.user.id);
-      await interaction.update({ components: [noticeContainer('success', m.pipeline.scheduled)] });
+      const outcome = await ctx.pipeline.requestRegeneration(meeting.id, interaction.user.id);
+      await interaction.update({ components: [noticeContainer('success', m.pipeline.regenerationNotice(m.pipeline.regeneration[outcome]!))] });
       return;
     }
 
@@ -566,8 +566,10 @@ export async function handleAction(
       let notice: string;
       if (recordings.length === 0) notice = m.pipeline.nothing;
       else if (ctx.recordings.isRecording(meeting.id)) notice = m.errors.alreadyRecording;
-      else if (ctx.pipeline.isQueued(meeting.id)) notice = m.pipeline.running_reply;
-      else if (retranscribe && recordings.some((r) => r.purgedAt)) {
+      // Tout retranscrire pendant un traitement : refusé (la transcription en cours serait refaite).
+      else if (retranscribe && ctx.pipeline.isQueued(meeting.id)) notice = m.pipeline.running_reply;
+      else if (!retranscribe) notice = m.pipeline.regenerationNotice(m.pipeline.regeneration[await ctx.pipeline.requestRegeneration(meeting.id, interaction.user.id)]!);
+      else if (recordings.some((r) => r.purgedAt)) {
         const purged = recordings.find((r) => r.purgedAt)!;
         notice = m.pipeline.purged(formatWhen(purged.purgedAt!, scope.settings.timezone, scope.settings.locale, m.format.when));
       } else {

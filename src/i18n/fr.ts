@@ -435,7 +435,6 @@ export const fr = {
     correctModal: 'Corriger le compte rendu',
     correctField: 'Consigne de correction',
     correctHint: 'Ex. « Pol et non Paul », « la décision était de reporter à janvier ». Le résumé sera régénéré.',
-    correctSaved: 'Correction prise en compte : le compte rendu va être régénéré (quelques secondes à quelques minutes). Vous serez mentionné dans le post une fois qu’il sera à jour.',
     correctNoSummary: "Il n'y a pas encore de résumé à corriger pour cette réunion.",
     disabled: '*Résumé désactivé : aucun modèle de langue configuré. La transcription complète est jointe.*',
     pending: '⏳ *Le résumé sera ajouté ici dès qu’il sera prêt. La transcription complète est déjà jointe.*',
@@ -555,6 +554,15 @@ export const fr = {
     scheduled: 'Compte rendu programmé : il sera publié dans le post, et vous y serez mentionné une fois prêt.',
     nothing: "Aucun enregistrement exploitable pour cette réunion.",
     running_reply: 'Un traitement est déjà en cours pour cette réunion.',
+    /** Nouveau résumé demandé pendant un traitement (correction, régénération). */
+    regeneration: {
+      scheduled: 'le compte rendu va être régénéré (quelques secondes à quelques minutes)',
+      restarted: 'le résumé en cours est relancé pour en tenir compte, avec les consignes précédentes',
+      after: 'un nouveau résumé suivra la publication en cours, avec toutes les consignes',
+      included: 'le résumé n’a pas encore commencé : il en tiendra compte',
+    } as Record<string, string>,
+    regenerationNotice: (what: string) => `Nouveau résumé : ${what}. Vous serez mentionné dans le post une fois le compte rendu à jour.`,
+    correctionNotice: (what: string) => `Correction ajoutée : ${what}. Vous serez mentionné dans le post une fois le compte rendu à jour.`,
     purged: (when: string) =>
       `Les pistes audio de cette réunion ont été supprimées le ${when} (durée de conservation) : impossible de retranscrire. Le résumé peut être régénéré sans « retranscrire ».`,
   },
