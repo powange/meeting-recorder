@@ -724,7 +724,7 @@ export const fr = {
     glossaryModalEdit: 'Modifier un terme',
     glossaryTermField: 'Terme',
     glossaryVariantsField: 'Autres écritures (facultatif)',
-    glossaryVariantsHint: 'Séparées par des virgules, ex. « ramstrat, rame strat » : la définition est envoyée si l’une apparaît.',
+    glossaryVariantsHint: 'Séparées par des virgules (ex. ramstrat, rame strat) : la définition suit si l’une est dite.',
     glossaryDefinitionField: 'Définition',
     glossaryDefinitionHint: 'Courte et factuelle : le modèle de résumé la reprend telle quelle.',
     glossaryModalImport: 'Importer des termes',

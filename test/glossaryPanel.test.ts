@@ -81,6 +81,15 @@ describe('/config → Glossaire', () => {
     expect(s.rows().find((x) => x.term === 'Terme 0')!.definition).toBe('nouvelle définition.');
   });
 
+  it('formulaires Ajouter, Modifier et Importer : acceptés par discord.js (limites de longueur des textes)', async () => {
+    const s = setup([{ term: 'Ram Strat', variants: ['ramstrat'], definition: 'éperonner.' }]);
+    for (const [action, arg] of [['glossaryAdd', undefined], ['glossaryEdit', 'g.1'], ['glossaryImport', undefined]] as const) {
+      const r = await s.run(action, arg ? { arg } : {});
+      expect(r.how).toBe('showModal');
+      expect(() => (r.payload as { toJSON(): unknown }).toJSON()).not.toThrow();
+    }
+  });
+
   it('export : fichier relisible par l’import, en message privé', async () => {
     const s = setup([{ term: 'Ram Strat', variants: ['ramstrat'], definition: 'éperonner.' }]);
     const r = await s.run('glossaryExport');
