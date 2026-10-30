@@ -793,8 +793,9 @@ describe.skipIf(!url)('Traitement post-réunion (PostgreSQL, ffmpeg, serveurs si
   });
 
   it('nouveau résumé demandé pendant le traitement : résumé en cours annulé et refait, sinon pris en compte ou refait après', async () => {
+    // Délais larges : la suite complète fait tourner de nombreux fichiers en parallèle.
     const waitFor = async (cond: () => boolean) => {
-      for (let i = 0; i < 300 && !cond(); i++) await new Promise((r) => setTimeout(r, 10));
+      for (let i = 0; i < 1500 && !cond(); i++) await new Promise((r) => setTimeout(r, 10));
     };
     const scenario = async (blockAt: 'summarize' | 'transcribe' | 'publish') => {
       const meeting = await seedMeeting();
@@ -822,9 +823,9 @@ describe.skipIf(!url)('Traitement post-réunion (PostgreSQL, ffmpeg, serveurs si
       const engine = new PipelineService(deps(), { mix: quick, transcribe: step('transcribe'), summarize: step('summarize'), publish: step('publish'), export: quick });
       await engine.schedule(meeting.id);
       await waitFor(() => calls.includes(blockAt));
+      expect(calls).toContain(blockAt); // le blocage est bien atteint avant la demande
       const outcome = await engine.requestRegeneration(meeting.id, 'correcteur');
       release();
-      await waitIdle(engine, meeting.id);
       await waitFor(() => !engine.isQueued(meeting.id));
       const rows = await repos.listPipeline(meeting.id);
       expect(rows.every((r) => r.status === 'done')).toBe(true);
