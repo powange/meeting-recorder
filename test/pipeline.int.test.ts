@@ -797,7 +797,7 @@ describe.skipIf(!url)('Traitement post-réunion (PostgreSQL, ffmpeg, serveurs si
     const waitFor = async (cond: () => boolean) => {
       for (let i = 0; i < 1500 && !cond(); i++) await new Promise((r) => setTimeout(r, 10));
     };
-    const scenario = async (blockAt: 'summarize' | 'transcribe' | 'publish') => {
+    const scenario = async (blockAt: 'summarize' | 'transcribe' | 'publish', ignoreAbort = false) => {
       const meeting = await seedMeeting();
       const calls: string[] = [];
       let release!: () => void;
@@ -814,8 +814,9 @@ describe.skipIf(!url)('Traitement post-réunion (PostgreSQL, ffmpeg, serveurs si
         }
         if (name === blockAt && blocked) {
           blocked = false;
-          // Bloqué jusqu'à la demande ; un résumé annulé s'interrompt (signal du traitement).
-          await Promise.race([gate, new Promise((_, reject) => ctx.signal.addEventListener('abort', () => reject(new Error('annulé'))))]);
+          // Bloqué jusqu'à la demande ; un résumé annulé s'interrompt (signal du traitement), sauf
+          // s'il n'écoutait pas encore le signal : il finit alors, mais n'est pas publié.
+          await (ignoreAbort ? gate : Promise.race([gate, new Promise((_, reject) => ctx.signal.addEventListener('abort', () => reject(new Error('annulé'))))]));
         }
         return {};
       };
@@ -836,6 +837,8 @@ describe.skipIf(!url)('Traitement post-réunion (PostgreSQL, ffmpeg, serveurs si
     const during = await scenario('summarize');
     expect(during.outcome).toBe('restarted');
     expect(during.calls).toEqual(['transcribe', 'summarize', 'summarize:sans-notes', 'summarize', 'summarize:sans-notes', 'publish']);
+    const late = await scenario('summarize', true);
+    expect(late.calls).toEqual(['transcribe', 'summarize', 'summarize:sans-notes', 'summarize', 'summarize:sans-notes', 'publish']);
 
     // Avant le résumé (transcription en cours) : rien de plus, le résumé lira toutes les consignes.
     const before = await scenario('transcribe');

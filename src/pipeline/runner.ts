@@ -372,7 +372,8 @@ export class PipelineService {
     const published = all.some((r) => r.step === 'publish' && r.status === 'done');
     let mixRedone = false;
     for (const wave of waves(all.filter((r) => r.status !== 'done'))) {
-      if (this.stopping) return;
+      // Traitement annulé (nouveau résumé demandé) : une étape qui a fini malgré tout n'est pas suivie.
+      if (this.stopping || run.signal.aborted) return;
       const outcomes = await Promise.all(wave.map((row) => this.runStep(row, run)));
       // L'audio complet en échec ne bloque pas le compte rendu : résumé et publication suivent
       // sans audio ; « Réessayer » refait le mix, puis republie pour l'ajouter.
