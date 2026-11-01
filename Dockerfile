@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Version de Node épinglée (pas une étiquette flottante) : la version embarquée se lit dans le
 # dépôt, et Dependabot propose les correctifs de sécurité (24.22.1 : avis du 21 octobre 2026).
-FROM node:24.22.1-bookworm-slim AS build
+FROM node:24.22.2-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -9,7 +9,7 @@ COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
 RUN npm run build && npm prune --omit=dev
 
-FROM node:24.22.1-bookworm-slim
+FROM node:24.22.2-bookworm-slim
 ENV NODE_ENV=production DATA_DIR=/data
 # ffmpeg : transcription et mix. pg_dump 17 (dépôt PGDG, Debian n'a que le 15) : sauvegarde
 # automatique avant chaque migration ; il doit être au moins de la version du serveur.
