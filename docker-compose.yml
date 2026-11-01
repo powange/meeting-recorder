@@ -172,7 +172,7 @@ services:
 
   # Facultatif : lancé seulement avec COMPOSE_PROFILES=litellm.
   litellm:
-    image: ghcr.io/berriai/litellm:v1.105.0
+    image: ghcr.io/berriai/litellm:v1.106.6
     profiles: [litellm]
     restart: unless-stopped
     logging: *logging
